@@ -1,0 +1,21 @@
+docker run -t -i --name test swr.cn-southwest-2.myhuaweicloud.com/pharmcube/rule_tagger_4_5_5_npm:0.1.0 /bin/bash
+1. ubuntu 安装apt-install
+cp sources.list /etc/apt/
+chmod 777 /tmp
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 871920D1991BC93C
+apt-get update
+apt-get upgrade
+
+2. 安装nodejs
+export NODE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/
+npm install -g n
+n stable
+
+3. 安装html_fix
+cd html_fix/
+npm install
+pip install -e .
+
+docker commit test swr.cn-southwest-2.myhuaweicloud.com/pharmcube/rule_tagger_4_5_5_npm_html_fix:0.1.1
+docker push swr.cn-southwest-2.myhuaweicloud.com/pharmcube/rule_tagger_4_5_5_npm_html_fix:0.1.1
+

@@ -1,0 +1,1 @@
+streamlit run /yuheng_project/yuheng_project/demo.py --server.port 8505
