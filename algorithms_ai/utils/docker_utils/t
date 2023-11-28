@@ -1,0 +1,14 @@
+FROM python:3.9
+
+RUN mkdir -p /yuheng_project
+# Install packages
+ADD . /yuheng_project/
+WORKDIR /yuheng_project
+RUN --mount=type=cache,mode=0777,target=/root/.cache/  pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ \
+    && pip install -r ./requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+
+RUN cp /yuheng_project/data/font/SimHei.ttf /usr/local/lib/python3.9/site-packages/matplotlib/mpl-data/fonts/ttf
+
+RUN chmod -R 777 /yuheng_project/start.sh
+WORKDIR ./yuheng_project
+CMD ["/yuheng_project/start.sh"]

@@ -1,0 +1,24 @@
+#FROM swr.cn-southwest-2.myhuaweicloud.com/pharmcube/rule_tagger:4.5.5
+FROM swr.cn-southwest-2.myhuaweicloud.com/pharmcube/rule_tagger_4_5_5_npm_html_fix:0.1.1
+
+RUN rm -rf /rule_tagger
+RUN mkdir -p /app
+#RUN mkdir -p /usr/share/nltk_data
+
+# Install packages
+RUN pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple/
+RUN pip install poetry -i https://pypi.tuna.tsinghua.edu.cn/simple/
+
+ADD ./pharma_news_model/ /app/pharma_news_model/
+ADD ./rule_based_entity_linking/ /app/rule_based_entity_linking/
+ADD ./rule_based_ner/ /app/rule_based_ner/
+ADD ./comm_tag_obj/ /app/comm_tag_obj/
+
+ENV PYTHONPATH "${PYTHONPATH}:/app/pharma_news_model:/app/rule_based_entity_linking/:/app/rule_based_ner/:/app/comm_tag_obj"
+
+WORKDIR /app/pharma_news_model/model/
+
+RUN poetry install --no-dev
+
+ADD ./html_fix/ /app/html_fix/
+WORKDIR /app/pharma_news_model/model/
