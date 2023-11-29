@@ -163,3 +163,5 @@ cython_debug/
 /my_models/
 /my_datasets/
 /algorithms_ai/utils/elastic_search_utils/es_config.py
+/algorithms_ai/deep_learning/information_extraction_old/
+/algorithms_ai/deep_learning/relation_extraction/

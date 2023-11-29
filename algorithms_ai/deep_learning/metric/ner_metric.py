@@ -139,13 +139,13 @@ def entity_recognition_metric(y_true: list, y_pred: list, pos_neg_ratio: str = N
          pos_correct_entities, pos_wrong_entities, pos_omitted_entities,
          pos_redundant_entities + neg_redundant_entities,
          ''],
-        # ['micro_precision', '', '', '', '', '', '', '', micro_precision],
-        # ['micro_recall', '', '', '', '', '', '', '', micro_recall],
-        # ['micro_f1', '', '', '', '', '', '', '', micro_f1],
-        #
-        # ['macro_precision', '', '', '', '', '', '', '', macro_precision],
-        # ['macro_recall', '', '', '', '', '', '', '', macro_recall],
-        # ['macro_f1', '', '', '', '', '', '', '', macro_f1],
+        ['micro_precision', '', '', '', '', '', '', '', micro_precision],
+        ['micro_recall', '', '', '', '', '', '', '', micro_recall],
+        ['micro_f1', '', '', '', '', '', '', '', micro_f1],
+
+        ['macro_precision', '', '', '', '', '', '', '', macro_precision],
+        ['macro_recall', '', '', '', '', '', '', '', macro_recall],
+        ['macro_f1', '', '', '', '', '', '', '', macro_f1],
 
         ['micro_score', '', '', '', '', '', '', '', micro_score],
         ['macro_score', '', '', '', '', '', '', '', macro_score],
@@ -260,7 +260,7 @@ if __name__ == '__main__':
     ]
     b = [
         {
-            'input_text':'s',
+            'input_text': 's',
             'entity_type_1': [
                 [{'start_offset': 1, 'end_offset': 2, 'text': 'ab'},
                  {'start_offset': 6, 'end_offset': 10, 'text': 'dfgwa'}],

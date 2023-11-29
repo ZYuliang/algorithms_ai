@@ -6,7 +6,7 @@ setup(
     description=(
         ''
     ),
-    long_description=open('README.md').read(),
+    long_description=open('information_extraction/README.md').read(),
     long_description_content_type='text/markdown',
     author='Yuliang Zhang',
     author_email='',
@@ -22,7 +22,7 @@ setup(
         'accelerate==0.24.1',
         "datasets==2.14.6",
         "wandb==0.16.0",
-        "torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116"
+        # "torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116"
     ],
     extras_require={
     },

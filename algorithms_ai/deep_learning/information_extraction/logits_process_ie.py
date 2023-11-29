@@ -160,3 +160,6 @@ def cut_seq(seq):
         if sub_seq:
             refined_seq.append(sub_seq)
         return refined_seq
+
+if __name__ == '__main__':
+    pass

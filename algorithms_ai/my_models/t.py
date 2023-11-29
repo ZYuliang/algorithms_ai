@@ -1,2 +1,0 @@
-from optimum.onnxruntime import ORTModelForQuestionAnswering
-print(1)

@@ -1,9 +1,19 @@
+"""
+普通数据集的处理包括：
+切分样本为训练验证测试集：split_train_dev_test
+把数据集加入到数据字典中：add_dataset_to_dataset_dict
+存储和使用数据字典：save_and_load_dataset （装饰器）
+获得和显示数据的结构：get_data_structure ，show_data_structure
+"""
+
 import json
 import os
 import random
 import shutil
-from loguru import logger
+
 from datasets import load_from_disk
+from loguru import logger
+
 
 def split_train_dev_test(samples: list, splits=(0.8, 0.1, 0.1), shuffle=True, random_seed=None):
     # 切分数据集,一堆样本的列表,
@@ -70,9 +80,7 @@ def add_dataset_to_dataset_dict(dataset, datasets_dict_dir, split_name, desc='',
         json.dump(dataset_dict_config, file, ensure_ascii=False, indent=4)
 
 
-
-def save_and_load_dataset(dataset_dir):
-    from datasets import load_from_disk
+def save_and_load_dataset_dict(dataset_dir):
     def main_func(func):
         def inner_func(*args, **kwargs):
             use_file_cache = kwargs.get('use_file_cache', True)
@@ -89,62 +97,39 @@ def save_and_load_dataset(dataset_dir):
 
         return inner_func
 
-
-def load_train_validation(datasets_dict_dir, use_cache=False):
-    """
-    读取数据集字典中train和validation的装饰器
-    """
-
-    def main_func(func):
-        def inner_func(*args, **kwargs):
-            if os.path.exists(datasets_dict_dir):
-                dsd = load_from_disk(datasets_dict_dir, keep_in_memory=True)
-            else:
-                dsd = dict()
-            if use_cache and ('train' in dsd) and ('validation' in dsd):
-                train = dsd['train']
-                validation = dsd['validation']
-            else:
-                train, validation = func(*args, **kwargs)
-                add_dataset_to_dataset_dict(train, datasets_dict_dir, 'train', desc='train', use_cache=use_cache)
-                add_dataset_to_dataset_dict(validation, datasets_dict_dir, 'validation', desc='validation',
-                                            use_cache=use_cache)
-            return train, validation
-
-        return inner_func
-
     return main_func
 
 
 def get_data_structure(data):
-    if isinstance(data,str):
+    if isinstance(data, str):
         return 'str\n'
-    elif isinstance(data,list):
-        if len(data)>=1:
-            return f'list({len(data)}:\n'+get_data_structure(data[0])+')\n'
+    elif isinstance(data, list):
+        if len(data) >= 1:
+            return f'list({len(data)}:\n' + get_data_structure(data[0]) + ')\n'
         else:
             return f'list{0}:\n'
-    elif isinstance(data,dict):
+    elif isinstance(data, dict):
         if not data:
             return 'dict\n'
 
         r = 'dict(\n'
-        for i,j in data.items():
+        for i, j in data.items():
             r += f'{i}:'
             r += get_data_structure(j)
-        r+=')\n'
+        r += ')\n'
         return r
-    elif isinstance(data,bool):
+    elif isinstance(data, bool):
         return 'bool\n'
     else:
         if not data:
             return 'None\n'
         return 'other\n'
 
+
 def show_data_structure(data):
     data_structure = get_data_structure(data)
     data_structure = data_structure.split('\n')
-    index=0
+    index = 0
     step = 4
     for i in data_structure:
         if '(' in i:
@@ -155,7 +140,6 @@ def show_data_structure(data):
             print(index * ' ' + i)
         else:
             print(index * ' ' + i)
-
 
 
 if __name__ == '__main__':
