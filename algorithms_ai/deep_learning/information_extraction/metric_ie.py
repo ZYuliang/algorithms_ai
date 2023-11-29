@@ -1,7 +1,7 @@
 import numpy as np
 
-from information_extraction.common_metric import entity_recognition_metric
-from information_extraction.logits_process_ie import process_entity_logits, group_entities
+from algorithms_ai.deep_learning.information_extraction.logits_process_ie import process_entity_logits, group_entities
+from algorithms_ai.deep_learning.metric.ner_metric import entity_recognition_metric
 
 
 def metric_for_ie(eval_pred, entity2id, relation2id=None, threshold=0):

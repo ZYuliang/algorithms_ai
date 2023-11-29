@@ -2,7 +2,7 @@
 原始数据的处理，变成标注格式
 
 """
-from information_extraction.utils_ie import sequence_padding
+from algorithms_ai.deep_learning.information_extraction.utils_ie import sequence_padding
 
 
 def search_token_index(offset_mapping, char_index):
@@ -15,7 +15,18 @@ def search_token_index(offset_mapping, char_index):
 
 
 def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
-    # 处理标注格式的数据
+    """
+    处理标注格式的数据
+    data={'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, '
+                       'stomach discomfort and leg heaviness, low bp and pulse.',
+         'NER_ADR': [
+             [{'end_offset': 49, 'start_offset': 43, 'text': 'fatigue'}],
+             [{'end_offset': 112, 'start_offset': 110, 'text': 'low'},
+              {'end_offset': 125, 'start_offset': 121, 'text': 'pulse'}]]
+         }
+    from algorithms_ai.deep_learning.information_extraction.run_ie import get_tokenizer
+    print(process_one_sample(data,tokenizer=get_tokenizer(),entity2id={'NER_ADR':0}))
+    """
     text = sample["input_text"]
     encoder_text = tokenizer(text, return_offsets_mapping=True, truncation=True)
     input_ids_mask = [0 if i in tokenizer.all_special_ids else 1 for i in encoder_text['input_ids']]
@@ -98,3 +109,14 @@ def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
         'offset_mapping': encoder_text["offset_mapping"],
         'labels': [entity_labels, relation_labels, head_labels, tail_labels],
     }
+
+if __name__ == '__main__':
+    data={'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, '
+                       'stomach discomfort and leg heaviness, low bp and pulse.',
+         'NER_ADR': [
+             [{'end_offset': 49, 'start_offset': 43, 'text': 'fatigue'}],
+             [{'end_offset': 112, 'start_offset': 110, 'text': 'low'},
+              {'end_offset': 125, 'start_offset': 121, 'text': 'pulse'}]]
+         }
+    from algorithms_ai.deep_learning.information_extraction.run_ie import get_tokenizer
+    print(process_one_sample(data,tokenizer=get_tokenizer(),entity2id={'NER_ADR':0}))

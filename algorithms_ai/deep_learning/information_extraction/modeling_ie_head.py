@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from information_extraction.modeling_ie_embedding import SinusoidalPositionEmbedding, apply_rotary_position_embeddings
+from algorithms_ai.deep_learning.information_extraction.modeling_ie_embedding import SinusoidalPositionEmbedding, apply_rotary_position_embeddings
 
 
 class GlobalPointerHead(nn.Module):

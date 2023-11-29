@@ -10,10 +10,10 @@ import torch
 from transformers import PreTrainedModel
 from typing import Optional
 
-from information_extraction.modeling_ie_configuration import IEModelConfig
-from information_extraction.modeling_ie_head import GlobalPointerHead, EfficientGlobalPointerHead
-from information_extraction.modeling_ie_loss import loss_for_ie
-from information_extraction.modeling_ie_output import GPOutput
+from algorithms_ai.deep_learning.information_extraction.modeling_ie_configuration import IEModelConfig
+from algorithms_ai.deep_learning.information_extraction.modeling_ie_head import GlobalPointerHead, EfficientGlobalPointerHead
+from algorithms_ai.deep_learning.information_extraction.modeling_ie_loss import loss_for_ie
+from algorithms_ai.deep_learning.information_extraction.modeling_ie_output import GPOutput
 
 
 class IEModel(PreTrainedModel):
@@ -161,26 +161,4 @@ class IEModel(PreTrainedModel):
 
 
 if __name__ == '__main__':
-    entity2id = {'ADR': 0}
-    model_config = IEModelConfig(head_size=64,
-                                 relation2id=None,
-                                 entity2id=entity2id,
-                                 model_head='EfficientGlobalPointerHead',
-                                 encoder_type='bert',
-                                 encoder_path="/home/zyl/disk/algorithms_ai/algorithms_ai/my_models/relation_extraction/GPLinker_torch-main/model/",
-                                 encoder_config=None)
-
-    model = IEModel(model_config)
-
-    from data_process import get_dataset_dict, CollatorForIE
-
-    test_data = get_dataset_dict(use_file_cache=True)['val'].select(range(0, 3)).to_list()
-    test_data = CollatorForIE(entity2id)(test_data)
-
-    print(model(
-        input_ids=test_data['input_ids'],
-        attention_mask=test_data['attention_mask'],
-        token_type_ids=test_data['token_type_ids'],
-        labels=test_data['labels']
-    ))
-    print(2)
+    pass

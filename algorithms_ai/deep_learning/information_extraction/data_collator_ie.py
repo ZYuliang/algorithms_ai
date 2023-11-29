@@ -6,7 +6,7 @@
 import numpy as np
 import torch
 
-from information_extraction.utils_ie import sequence_padding
+from algorithms_ai.deep_learning.information_extraction.utils_ie import sequence_padding
 
 
 class CollatorForIE:
@@ -89,3 +89,20 @@ class CollatorForIE:
                     'attention_mask': batch_mask_ids,
                     'token_type_ids': batch_token_type_ids,
                 }
+
+    def test(self):
+        data = [{'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, '
+                               'stomach discomfort and leg heaviness, low bp and pulse.',
+                 'NER_ADR': [
+                     [{'end_offset': 49, 'start_offset': 43, 'text': 'fatigue'}],
+                     [{'end_offset': 112, 'start_offset': 110, 'text': 'low'},
+                      {'end_offset': 125, 'start_offset': 121, 'text': 'pulse'}]]
+                 }] * 10
+        from algorithms_ai.deep_learning.information_extraction.run_ie import get_tokenizer
+        from algorithms_ai.deep_learning.information_extraction.data_process_ie import process_one_sample
+        d = [process_one_sample(i, tokenizer=get_tokenizer(), entity2id={'NER_ADR': 0}) for i in data]
+        print(self(d))
+
+
+if __name__ == '__main__':
+    CollatorForIE().test()
