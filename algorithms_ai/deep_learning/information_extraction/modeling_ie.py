@@ -27,25 +27,28 @@ class IEModel(PreTrainedModel):
 
         self.head_size = config.head_size
         self.model_head = config.model_head
+        self.vocab_size = config.vocab_size
 
         self.encoder_type = config.encoder_type
         self.encoder_path = config.encoder_path
         self.encoder, self.encoder_hidden_size = self.get_encoder(config.encoder_type, config.encoder_path,
-                                                                  config.encoder_config)
+                                                                  config.encoder_config, self.vocab_size)
         config.encoder_hidden_size = self.encoder_hidden_size
         config.encoder_config = self.encoder.config
 
         self.build_model()
 
-    def get_encoder(self, encoder_type, encoder_path, encoder_config):
+    def get_encoder(self, encoder_type, encoder_path, encoder_config, vocab_size):
         if encoder_type == 'bert':
             from transformers import BertModel
             encoder = BertModel.from_pretrained(encoder_path)
             encoder_hidden_size = encoder.config.hidden_size
         else:
             from transformers import BertModel
-            encoder = BertModel.from_pretrained(encoder_path)
+            encoder = self.from_pretrained(encoder_path).encoder
             encoder_hidden_size = encoder.config.hidden_size
+        if encoder.embeddings.word_embeddings.weight.size()[1]!=vocab_size:
+            encoder.resize_token_embeddings(new_num_tokens=vocab_size)
         return encoder, encoder_hidden_size
 
     def build_model(self):

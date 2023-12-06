@@ -4,6 +4,7 @@
 
 """
 import signal
+
 from loguru import logger
 import time
 
@@ -35,7 +36,8 @@ def set_timeout(num, callback):
                 signal.alarm(0)  # 关闭闹钟
                 return r
             except RuntimeError as e:
-                callback()
+                r = callback()
+                return r
 
         return to_do
 
@@ -139,3 +141,15 @@ if __name__ == '__main__':
     print(time.time())
     print(1)
 
+    def after_timeout():  # 超时后的处理函数
+        return 2
+
+
+    @set_timeout(2, after_timeout)  # 限时 2 秒超时
+    def connect():  # 要执行的函数
+        time.sleep(1)  # 函数执行时间，写大于2的值，可测试超时
+        return 3
+
+
+    a = connect()
+    print(a)

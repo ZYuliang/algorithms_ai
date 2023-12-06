@@ -36,7 +36,7 @@ def split_sample_and_label(sample, sentence_tokenizer=None, ner_keys=None, keep_
         texts = sentence_token_result['texts']
 
         if ner_keys:
-            ner_keys_res_dict = {i: {'input_text': texts[i], 'run_sentence_id': i} for i in range(len(texts))}
+            ner_keys_res_dict = {i: {'input_text': texts[i], 'run_sentence_id': offsets_mapping[i]} for i in range(len(texts))}
             for i, j in ner_keys_res_dict.items():
                 j.update(features)
                 j.update({j: [] for j in ner_keys})
@@ -140,7 +140,8 @@ class InputNormalizer:
             offsets = offsets_mapping[index]
             text = self.process_token(tokens_list[index])
 
-            if last_end_index < offsets[0] and index != tokens_list_len - 1 and index != 0:
+            if (last_end_index < offsets[0] and index != tokens_list_len - 1 and index != 0) \
+                    or (index==tokens_list_len-1 and last_end_index < offsets[0]):
                 refined_input_text.append(' ')
                 index_refined_mapping_raw.append(
                     (offsets_mapping[index - 1][-1] + 1, offsets[0] - 1))
@@ -258,8 +259,10 @@ class LabelNormalizer:
         # 规范一个标签下的所有实体，交叉重复的实体去除
         entities_index = []
         for entity in label_entities:
-            entities_index.append(self.normalize_entity(entity, texts_list, offsets_mapping,
-                                                        entity_repair_mode=entity_repair_mode))
+            normalized_entity = self.normalize_entity(entity, texts_list, offsets_mapping,
+                                                        entity_repair_mode=entity_repair_mode)
+            if normalized_entity:
+                entities_index.append(normalized_entity)
 
         entity_delete = [0 for _ in range(len(entities_index))]
         for each_entity_index in range(len(entities_index) - 1):
@@ -355,7 +358,6 @@ class LabelNormalizer:
         # 规范化实体的部分,补全或删除
 
         refined_start_offset_index = -1
-
         refined_end_offset_index = -1
         entity_start_offset = entity_part['start_offset']
         entity_end_offset = entity_part['end_offset']
@@ -367,10 +369,13 @@ class LabelNormalizer:
             if refined_start_offset_index == -1:
                 if offsets[0] <= entity_start_offset <= offsets[1]:
                     if entity_repair_mode == 'delete':
-                        if i != len(offsets_mapping) - 1:
-                            refined_start_offset_index = i + 1
-                        else:
+                        if entity_start_offset==offsets[0]:
                             refined_start_offset_index = i
+                        elif entity_start_offset>offsets[0]:
+                            if i != len(offsets_mapping) - 1:
+                                refined_start_offset_index = i + 1
+                            else:
+                                refined_start_offset_index = i
                     else:
                         refined_start_offset_index = i
                 elif i != 0 and offsets_mapping[i - 1][1] < entity_start_offset < offsets[0]:
@@ -381,10 +386,13 @@ class LabelNormalizer:
             if refined_start_offset_index >= 0 and refined_end_offset_index == -1:
                 if offsets[0] <= entity_end_offset <= offsets[1]:
                     if entity_repair_mode == 'delete':
-                        if i != 0:
-                            refined_end_offset_index = i - 1
-                        else:
+                        if entity_end_offset == offsets[1]:
                             refined_end_offset_index = i
+                        elif entity_end_offset < offsets[1]:
+                            if i != 0:
+                                refined_end_offset_index = i - 1
+                            else:
+                                refined_end_offset_index = i
                     else:
                         refined_end_offset_index = i
                 elif i != len(offsets_mapping) - 1 and offsets[1] < entity_end_offset < offsets_mapping[i + 1][0]:
@@ -507,7 +515,6 @@ class NERNormalizer:
                                                          sentence_tokenizer=sentence_tokenizer,
                                                          ner_keys=ner_keys,
                                                          keep_features=keep_features)
-                    for k, v in enumerate(all_samples): v['run_sentence_id'] = k
                     ner_samples.extend(all_samples)
                 keep_features.append('run_sentence_id')
             else:
@@ -518,7 +525,6 @@ class NERNormalizer:
                                                      sentence_tokenizer=sentence_tokenizer,
                                                      ner_keys=ner_keys,
                                                      keep_features=keep_features)
-                for i, j in enumerate(ner_samples): j['run_sentence_id'] = i
                 if not keep_features:
                     keep_features = ['run_sentence_id']
                 else:
@@ -576,6 +582,17 @@ class NERNormalizer:
         print(self.run([sample] * 2, ['NER_ADR', 'NER_Drug'], sentence_tokenizer=sentence_tokenizer,
                        keep_features=['features']))
 
+    def test2(self):
+        t =' [ BriefTitle]:A Study of SHR-1501 Alone or in Combination With BCG in Subjects With NMIBC'
+        a,b,c,d = self.input_normalizer.run(input_text=t,
+                                      ner_results=None,
+                                      ner_keys=None)
+        print(a)
+        print(b)
+        print(c)
+        print(d)
+        print(2)
 
 if __name__ == '__main__':
     NERNormalizer().test()
+

@@ -143,5 +143,5 @@ def show_data_structure(data):
 
 
 if __name__ == '__main__':
-    a = list(range(30))
-    print(split_train_dev_test(a))
+    a = list(range(300))
+    print(split_train_dev_test(a,splits=(300-100,100,0)))

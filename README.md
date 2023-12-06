@@ -23,5 +23,5 @@ algorithms_ai
 
 zyl_utils.file_utils --- algorithms_ai.utils.file_utils
 deep_learning.information_extraction --- algorithms_ai.deep_learning.information_extraction
-dataset_utils.dataset_utils --- algorithms_ai.dataset_utils.dataset_utils
+zyl_utils.dataset_utils.dataset_utils --- algorithms_ai.dataset_utils.dataset_utils
 
