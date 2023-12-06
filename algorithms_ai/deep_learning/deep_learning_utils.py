@@ -14,5 +14,6 @@ def get_train_date(output_dir,mode='last'):
         print(f'best_checkpoint:{best_ckpt}')  # your best ckpoint.
         return best_ckpt
     else:
+        last_ckpt = os.path.join(output_dir, last_ckpt)
         print(f'load last checkpoint:{last_ckpt}')
         return last_ckpt

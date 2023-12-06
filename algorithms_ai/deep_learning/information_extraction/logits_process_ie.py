@@ -4,7 +4,6 @@ import torch
 
 def process_model_output(model_predictions, threshold=0):
     # 处理logits ，可以返回每个样本的每个实体的token，根据原文映射返回在原文中的位置
-
     input_ids_mask = model_predictions[-1]
     ignored_token_ids = [0, -100]
     ignored_token_index_dict = dict()

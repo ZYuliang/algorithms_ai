@@ -7,19 +7,22 @@ warnings.filterwarnings("ignore")  # torch warning
 
 
 def get_tokenizer(encoder_type='bert',
-                  encoder_checkpoint="/home/zyl/disk/algorithms_ai/algorithms_ai/my_models/relation_extraction/GPLinker_torch-main/model/",
-                  model_max_length=128):
+                  encoder_path="model",
+                  model_max_length=128,
+                  special_tokens=None):
     tokenizer_cache = '/large_files/5T/huggingface_cache/tokenizer_cache/'
     if encoder_type == 'bert':
         from transformers import BertTokenizerFast
-        tokenizer = BertTokenizerFast.from_pretrained(pretrained_model_name_or_path=encoder_checkpoint,
+        tokenizer = BertTokenizerFast.from_pretrained(pretrained_model_name_or_path=encoder_path,
                                                       cache_dir=tokenizer_cache)
     else:
         from transformers import BertTokenizerFast
-        tokenizer = BertTokenizerFast.from_pretrained(pretrained_model_name_or_path=encoder_checkpoint,
+        tokenizer = BertTokenizerFast.from_pretrained(pretrained_model_name_or_path=encoder_path,
                                                       cache_dir=tokenizer_cache)
-
-    tokenizer.model_max_length = model_max_length
+    if model_max_length:
+        tokenizer.model_max_length = model_max_length
+    if special_tokens:
+        tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     return tokenizer
 
 
@@ -36,8 +39,7 @@ class InformationExtraction:
                  encoder_type='bert',
                  encoder_path='bert-base-uncased',
                  model_head='EfficientGlobalPointerHead',
-                 cache_dir='./cache',
-                 model_path=None,
+                 cache_dir='./cache'
                  ):
         self.entity2id = entity2id
         self.relation2id = relation2id
@@ -46,24 +48,27 @@ class InformationExtraction:
         self.encoder_type = encoder_type
         self.encoder_path = encoder_path
         self.cache_dir = cache_dir
-        self.model_path = model_path
 
     @staticmethod
     def get_dataset_dict(train_data=None, tokenizer=None, entity2id=None, val_data=None,
-                         dataset_dict_dir='./test_data', use_file_cache=True):
+                         dataset_dict_dir='./test_data.pickle', use_file_cache=True):
         from algorithms_ai.deep_learning.information_extraction.data_process_ie import process_one_sample
 
-        from algorithms_ai.dataset_utils.dataset_utils import save_and_load_dataset_dict
-        from datasets import DatasetDict, Dataset
-        @save_and_load_dataset_dict(dataset_dir=dataset_dict_dir)
+        # from zyl_utils.dataset_utils.dataset_utils import save_and_load_dataset_dict
+        from algorithms_ai.utils.file_utils.file_utils import save_and_load
+
+        @save_and_load(file_name=dataset_dict_dir)
         def get_dataset_dict_func():
             train_dataset = [process_one_sample(i, tokenizer, entity2id) for i in train_data]
             if val_data:
                 val_dataset = [process_one_sample(i, tokenizer, entity2id) for i in val_data]
-                dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset),
-                                  'val_for_model': Dataset.from_list(val_dataset)})
+                dt = {'train_for_model': train_dataset,
+                      'val_for_model': val_dataset}
+                # dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset),
+                #                   'val_for_model': Dataset.from_list(val_dataset)})
             else:
-                dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset)})
+                dt = {'train_for_model': train_dataset}
+                # dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset)})
 
             return dt
 
@@ -71,7 +76,8 @@ class InformationExtraction:
 
     @staticmethod
     def init_model(entity2id=None, relation2id=None, head_size=64, encoder_type='bert',
-                   encoder_path='bert_base_uncased', model_head='', frozen_encoder=False, model_max_length=128):
+                   encoder_path='bert_base_uncased', model_head='', frozen_encoder=False, model_max_length=128,
+                   vocab_size=None):
         from algorithms_ai.deep_learning.information_extraction.modeling_ie import IEModelConfig, IEModel
 
         model_config = IEModelConfig(
@@ -81,7 +87,8 @@ class InformationExtraction:
             model_head=model_head,
             encoder_type=encoder_type,
             encoder_path=encoder_path,
-            model_max_length=model_max_length
+            model_max_length=model_max_length,
+            vocab_size=vocab_size
         )
 
         model = IEModel(model_config)
@@ -95,6 +102,7 @@ class InformationExtraction:
 
         if frozen_encoder:
             frozen_layers(model)
+
         return model
 
     @staticmethod
@@ -177,9 +185,10 @@ class InformationExtraction:
     def train(self,
               train_data,
               val_data,
-              dataset_dict_dir='./test_data',
+              dataset_dict_dir='./test_data.pickle',
               use_file_cache=True,
               model_max_length=128,
+              special_tokens=None,
 
               cuda_devices='0,1',
               wandb_project_name=None,
@@ -198,8 +207,10 @@ class InformationExtraction:
 
         tokenizer = get_tokenizer(
             encoder_type=self.encoder_type,
-            encoder_checkpoint=self.encoder_path,
-            model_max_length=model_max_length)
+            encoder_path=self.encoder_path,
+            model_max_length=model_max_length,
+            special_tokens=special_tokens
+        )
 
         data_collator = get_data_collator(
             entity2id=self.entity2id,
@@ -208,8 +219,9 @@ class InformationExtraction:
         model = self.init_model(
             entity2id=self.entity2id, relation2id=self.relation2id,
             head_size=self.head_size, encoder_type=self.encoder_type, encoder_path=self.encoder_path,
-            model_head=self.model_head, frozen_encoder=frozen_encoder, model_max_length=model_max_length)
-
+            model_head=self.model_head, frozen_encoder=frozen_encoder, model_max_length=model_max_length,
+            vocab_size=len(tokenizer)
+        )
         dataset_dict = self.get_dataset_dict(
             train_data=train_data, tokenizer=tokenizer, entity2id=self.entity2id,
             val_data=val_data, dataset_dict_dir=dataset_dict_dir, use_file_cache=use_file_cache,
@@ -246,14 +258,21 @@ class InformationExtraction:
         trainer.train()
 
     @staticmethod
-    def get_model(model_path):
+    def get_model(model_checkpoint):
         from algorithms_ai.deep_learning.information_extraction.modeling_ie import IEModel
-        model = IEModel.from_pretrained(pretrained_model_name_or_path=model_path)
+
+        from algorithms_ai.deep_learning.information_extraction.modeling_ie_configuration import IEModelConfig
+        config = IEModelConfig.from_pretrained(model_checkpoint)
+        config.encoder_type = ''
+        config.encoder_path = model_checkpoint
+
+        model = IEModel.from_pretrained(model_checkpoint, config=config)
 
         tokenizer = get_tokenizer(
             encoder_type=model.config.encoder_type,
-            encoder_checkpoint=model.config.encoder_path,
-            model_max_length=model.config.model_max_length)
+            encoder_path=model.config.encoder_path,
+            model_max_length=model.config.model_max_length,
+        )
 
         return model, tokenizer
 
@@ -263,7 +282,7 @@ class InformationExtraction:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-        model, tokenizer = self.get_model(self.model_path)
+        model, tokenizer = self.get_model(self.encoder_path)
 
         data_collator = get_data_collator(
             entity2id=model.config.entity2id,
@@ -302,13 +321,14 @@ class InformationExtraction:
         )
         trainer.evaluate(test_data)
 
-    def inference(self, to_predicts, cuda_devices, per_device_eval_batch_size, threshold=0):
+    def inference(self, to_predicts, cuda_devices, per_device_eval_batch_size, threshold=0,
+                  entity_repair_mode='complete'):
         if cuda_devices:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
         if not hasattr(self, 'inferencer'):
-            self.model, self.tokenizer = self.get_model(self.model_path)
+            self.model, self.tokenizer = self.get_model(self.encoder_path)
             data_collator = get_data_collator(
                 entity2id=self.model.config.entity2id,
                 relation2id=self.model.config.relation2id,
@@ -367,7 +387,7 @@ class InformationExtraction:
                                       for each_entity in entity_res]
                 sub_res[id2entity[entity_id]] = refined_entity_res
             sub_res = l_n(input_text=input_text, ner_results=sub_res,
-                          ner_keys=list(id2entity.values()), entity_repair_mode='complete')
+                          ner_keys=list(id2entity.values()), entity_repair_mode=entity_repair_mode)
             refined_res.append(sub_res)
         return refined_res
 
@@ -392,9 +412,10 @@ class InformationExtraction:
 
             self.train(train_data=data,
                        val_data=data,
-                       dataset_dict_dir='./tmp/dataset',
-                       use_file_cache=False,
+                       dataset_dict_dir='./tmp/dataset.pickle',
+                       use_file_cache=True,
                        model_max_length=108,
+                       special_tokens=['[adsf]'],
 
                        cuda_devices='2,3',
                        wandb_project_name=None,
@@ -413,7 +434,7 @@ class InformationExtraction:
         if test_eval:
             from algorithms_ai.deep_learning.deep_learning_utils import get_train_date
             checkpoint = get_train_date('./tmp/model', 'best')
-            self.model_path = checkpoint
+            self.encoder_path = checkpoint
             self.eval(data, cuda_devices='2,3',
                       metric='eval_sum_micro_score',
                       per_device_eval_batch_size=8,
@@ -423,7 +444,7 @@ class InformationExtraction:
         if test_predict:
             from algorithms_ai.deep_learning.deep_learning_utils import get_train_date
             checkpoint = get_train_date('./tmp/model', 'best')
-            self.model_path = checkpoint
+            self.encoder_path = checkpoint
             from algorithms_ai.deep_learning.deep_learning_utils import get_train_date
             to_predicts = [i['input_text'] for i in data]
             res = self.inference(to_predicts, cuda_devices='2,3', per_device_eval_batch_size=64, threshold=2)
