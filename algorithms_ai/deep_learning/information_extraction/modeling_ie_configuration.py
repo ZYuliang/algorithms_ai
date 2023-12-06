@@ -14,6 +14,7 @@ class IEModelConfig(PretrainedConfig):
             encoder_path='bert_base_uncased',
             encoder_config=None,
             model_max_length=128,
+            vocab_size = 20000,
             **kwargs
     ):
         super(IEModelConfig, self).__init__(**kwargs)
@@ -25,3 +26,4 @@ class IEModelConfig(PretrainedConfig):
         self.encoder_path = encoder_path
         self.encoder_config = encoder_config
         self.model_max_length = model_max_length
+        self.vocab_size = vocab_size

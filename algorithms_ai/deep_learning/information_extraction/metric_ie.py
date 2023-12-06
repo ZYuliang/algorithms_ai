@@ -3,7 +3,13 @@ import numpy as np
 from algorithms_ai.deep_learning.information_extraction.logits_process_ie import process_entity_logits, group_entities
 from algorithms_ai.deep_learning.metric.ner_metric import entity_recognition_metric
 
+from algorithms_ai.utils.time_utils.time_utils import set_timeout
 
+def after_timeout():  # 超时后的处理函数
+    print('time out!')
+    return {'sum_micro_score':0,'sum_micro_f1':0,'accuracy':0}
+
+@set_timeout(20, after_timeout)
 def metric_for_ie(eval_pred, entity2id, relation2id=None, threshold=0):
     # eval_pred 若include_inputs_for_metrics=True则包含inputs
     # eval_pred:inputs 输入的input_ids(b,max_seq),
@@ -28,7 +34,8 @@ def metric_for_ie(eval_pred, entity2id, relation2id=None, threshold=0):
         entity_labels = eval_pred.label_ids[0]
         entity_scores_dict = evaluate_entity_score(entity_pred_logits, entity_labels, ignored_token_index_dict,
                                                    threshold,
-                                                   entity2id, return_score_key=('micro_score', 'accuracy'))
+                                                   entity2id,
+                                                   return_score_key=('micro_score','micro_f1', 'accuracy'))
         all_score_dict.update(entity_scores_dict)
 
     if relation2id:
