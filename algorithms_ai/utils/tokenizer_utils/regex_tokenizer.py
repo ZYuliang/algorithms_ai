@@ -15,6 +15,9 @@ class RegexTokenizer:
             regex = '|'.join(keep_tokens) + '|' + regex
         self.find_re = re.compile(regex)
 
+    def __call__(self, text, *args, **kwargs):
+        return self.run(text)
+
     def run(self, text):
         # 输入文本，输出切分后的文本以及坐标--start-end--- 最后一个字符的坐标，而不是索引
         texts = []
@@ -68,4 +71,3 @@ if __name__ == '__main__':
     s = '  Terrible swelβli-IIng 12.3up.\nI went   to d&gt;my GP在发啊  '
     r = ''
     print(RegexTokenizer(r, keep_tokens=('2.2a',)).run(s))
-
