@@ -6,6 +6,11 @@
 实体标签结果的规范化：LabelNormalizer
 
 """
+from copy import deepcopy
+
+from loguru import logger
+
+from algorithms_ai.utils.parallel_process_utils.mpire_utils import apply_mpire
 from algorithms_ai.utils.string_utils.common_string import HTML_ESCAPE_DICT
 from algorithms_ai.utils.string_utils.string_utils import en_convert_accent_chars, en_convert_full_width, \
     zh_convert_chinese, en_text_lower, is_digit
@@ -20,11 +25,11 @@ def find_seq_index(seq, seq_list):
     return -1
 
 
-def split_sample_and_label(sample, sentence_tokenizer=None, ner_keys=None, keep_features=None):
+def split_sample_to_sentence_samples(sample, sentence_tokenizer=None, entity_types=None, keep_features=None):
     # 对一组结果和对应的标签进行分句
     input_text = sample['input_text']
 
-    refined_samples = []
+    sentence_samples = []
     if sentence_tokenizer:
         if keep_features:
             features = {i: j for i, j in sample.items() if i in keep_features}
@@ -35,32 +40,186 @@ def split_sample_and_label(sample, sentence_tokenizer=None, ner_keys=None, keep_
         offsets_mapping = sentence_token_result['offsets_mapping']
         texts = sentence_token_result['texts']
 
-        if ner_keys:
-            ner_keys_res_dict = {i: {'input_text': texts[i], 'run_sentence_id': offsets_mapping[i]} for i in range(len(texts))}
-            for i, j in ner_keys_res_dict.items():
-                j.update(features)
-                j.update({j: [] for j in ner_keys})
+        if entity_types:
+            sentence_samples_dict = {i: {'input_text': texts[i], 'sentence_split_offsets': offsets_mapping[i]}
+                                     for i in range(len(texts))}
+            for _, sentence_sample in sentence_samples_dict.items():
+                sentence_sample.update(features)
+                sentence_sample.update({entity_type: [] for entity_type in entity_types})
 
-            for ner_key in ner_keys:
-                ner_key_res = sample.get(ner_key, [])
-                for each_entity in ner_key_res:
-                    seq_indexs = [find_seq_index((_['start_offset'], _['end_offset']), offsets_mapping)
-                                  for _ in each_entity]
+            for entity_type in entity_types:
+                entities = sample.get(entity_type, [])
+                for entity in entities:
+                    seq_indexs = [find_seq_index((entity_part['start_offset'], entity_part['end_offset']),
+                                                 offsets_mapping) for entity_part in entity]
                     if -1 in seq_indexs or len(set(seq_indexs)) > 1:  # 确保一个实体只在一个输入（一句话）中出现
                         return []
                     seq_index = seq_indexs[0]
-                    refined_entity = [{'text': _['text'],
-                                       'start_offset': _['start_offset'] - offsets_mapping[seq_index][0],
-                                       'end_offset': _['end_offset'] - offsets_mapping[seq_index][0]}
-                                      for _ in each_entity]
-                    ner_keys_res_dict[seq_index][ner_key].append(refined_entity)
-            refined_samples.extend(ner_keys_res_dict.values())
-        return refined_samples
+                    entity = [{'text': entity_part['text'],
+                               'start_offset': entity_part['start_offset'] - offsets_mapping[seq_index][0],
+                               'end_offset': entity_part['end_offset'] - offsets_mapping[seq_index][0]}
+                              for entity_part in entity]
+                    sentence_samples_dict[seq_index][entity_type].append(entity)
+            sentence_samples.extend(sentence_samples_dict.values())
+        return sentence_samples
     else:
         return [sample]
 
 
-class InputNormalizer:
+def split_sample_with_sliding_window(sample, model_tokenizer=None, sliding_window=0.2, entity_types=None,
+                                     keep_features=None):
+    """
+    根据模型tokenizer使用sliding-window进行处理
+    返回samples
+    """
+    if not model_tokenizer:
+        return [sample]
+    input_text = sample["input_text"]
+    tokenized_info = model_tokenizer(input_text, return_offsets_mapping=True)
+    if model_tokenizer.model_max_length > 100000 or len(
+            tokenized_info['input_ids']) <= model_tokenizer.model_max_length:
+        return [sample]
+
+    char_state = ['O' for _ in range(len(input_text))]  # 存储每个字符是否可以作为开头或结尾
+    for _, offsets in model_tokenizer._tokenizer.pre_tokenizer.pre_tokenize_str(input_text):
+        char_state[offsets[0]] = 's'
+        if char_state[offsets[-1] - 1] == 's':
+            char_state[offsets[-1] - 1] = 's/e'
+        else:
+            char_state[offsets[-1] - 1] = 'e'
+
+    # if entity_types:
+    #     all_entity_span = []
+    #     for entity_type in entity_types:
+    #         for entity in sample.get(entity_type, []):
+    #             all_entity_span.append((entity[0]['start_offset'], entity[-1]['end_offset']))
+    #     if len(all_entity_span) > 1:
+    #         all_entity_span = sorted(all_entity_span, key=lambda x: (x[0], x[1]))
+    #         refined_all_entity_span = []
+    #         last_entity_span = all_entity_span[0]
+    #         for s, e in all_entity_span[1:]:
+    #             if s > last_entity_span[1]:
+    #                 refined_all_entity_span.append(last_entity_span)
+    #                 last_entity_span = (s, e)
+    #             elif s <= last_entity_span[1]:
+    #                 last_entity_span = (last_entity_span[0], max(last_entity_span[1], e))
+    #         refined_all_entity_span.append(last_entity_span)
+    #         all_entity_span = refined_all_entity_span
+    #     else:
+    #         all_entity_span = all_entity_span
+    #     for entity_start, entity_end in all_entity_span:
+    #         char_state[entity_start:entity_end + 1] = ['O'] * (entity_end - entity_start + 1)
+    #         char_state[entity_start] = 's'
+    #         if char_state[entity_end] == 's':
+    #             char_state[entity_end] = 's/e'
+    #         else:
+    #             char_state[entity_end] = 'e'
+
+    token_spans = [i for i in tokenized_info['offset_mapping'] if i != (0, 0)]
+    max_token_length = model_tokenizer.model_max_length - len(model_tokenizer.all_special_tokens)  # 有效token数
+    sliding_window_token_length = max(int(model_tokenizer.model_max_length * sliding_window), 1)
+
+    all_token_span_sample = []
+    token_span_sample = []
+    for each_token_span in token_spans:
+        token_span_sample.append(each_token_span)
+        if len(token_span_sample) > max_token_length:
+            while token_span_sample and ('e' not in char_state[token_span_sample[-1][0]:token_span_sample[-1][1]] and
+                                         's/e' not in char_state[token_span_sample[-1][0]:token_span_sample[-1][1]]):
+                token_span_sample = token_span_sample[0:-1]
+
+            while token_span_sample and ('s' not in char_state[token_span_sample[-1][0]:token_span_sample[-1][1]] and
+                                         's/e' not in char_state[token_span_sample[-1][0]:token_span_sample[-1][1]]):
+                token_span_sample = token_span_sample[1:]
+            all_token_span_sample.append(deepcopy(token_span_sample))
+            token_span_sample = token_span_sample[-sliding_window_token_length - 1:-1]
+
+    if token_span_sample:
+        all_token_span_sample.append(token_span_sample)
+
+    refined_samples = []
+    for token_span_sample in all_token_span_sample:
+        if not token_span_sample:
+            continue
+        start = token_span_sample[0][0]
+        end = token_span_sample[-1][-1]
+
+        sub_sample = dict()
+        sub_sample['input_text'] = input_text[start:end]
+        sub_sample['sliding_window_offsets'] = (start, end - 1)
+        if entity_types:
+            for entity_type in entity_types:
+                sub_sample[entity_type] = [
+                    [{'start_offset': entity_part['start_offset'] - start,
+                      'end_offset': entity_part['end_offset'] - start,
+                      'text': entity_part['text']}
+                     for entity_part in entity]
+                    for entity in sample.get(entity_type, [])
+                    if (start <= entity[0]['start_offset'] <= entity[-1]['end_offset'] <= end)
+                ]
+        if keep_features:
+            for i in keep_features: sub_sample[i] = sample.get(i)
+        refined_samples.append(sub_sample)
+    return refined_samples
+
+
+def add_prefixes_to_model_samples(model_samples, entity_types, prefixes, keep_features=None):
+    refined_model_samples = []
+    assert len(model_samples) == len(prefixes)
+    for model_sample, prefix in zip(model_samples, prefixes):
+        input_text = model_sample['input_text']
+        entities_result = {entity_type: model_sample.get(entity_type, []) for entity_type in entity_types}
+        entities_result = {
+            entity_type: [
+                [{'start_offset': entity_part['start_offset'] + len(prefix),
+                  'end_offset': entity_part['end_offset'] + len(prefix),
+                  'text': entity_part['text']} for entity_part in entity]
+                for entity in entities
+            ]
+            for entity_type, entities in entities_result.items()
+        }
+        refined_model_sample = {'input_text': prefix + input_text}
+        refined_model_sample['prefix'] = prefix
+        refined_model_sample.update(entities_result)
+        if keep_features:
+            refined_model_sample.update({i: model_sample[i] for i in keep_features if i in model_sample})
+        refined_model_samples.append(refined_model_sample)
+    return refined_model_samples
+
+
+def update_keep_features(keep_features, add_feature):
+    if not keep_features:
+        keep_features = [add_feature]
+    else:
+        keep_features.append(add_feature)
+    keep_features = list(set(keep_features))
+    return keep_features
+
+
+def order_entity_part_in_one_sample(sample, entity_types):
+    if not entity_types:
+        return sample
+    for entity_type in entity_types:
+        sample[entity_type] = [
+            sorted(entity, key=lambda entity_part: (entity_part['start_offset'], entity_part['end_offset']))
+            for entity in sample.get(entity_type, [])]
+
+
+def check_sample(sample, entity_types=None):
+    # 检查样本是否实体正确
+    if not entity_types:
+        return True
+
+    input_text = sample['input_text']
+    for entity_type in entity_types:
+        for entity in sample.get(entity_type, []):
+            for entity_part in entity:
+                if input_text[entity_part['start_offset']:entity_part['end_offset'] + 1] != entity_part['text']:
+                    return False
+    return True
+
+
+class InputTextNormalizer:
     def __init__(self,
                  is_en_convert_accent_chars=True,
                  is_en_convert_full_width=True,
@@ -89,17 +248,21 @@ class InputNormalizer:
 
         self.regex_tokenizer = RegexTokenizer().run
 
-    def run(self, input_text, ner_results=None, ner_keys=()):
+    def run(self, input_text, entities_result=None, entity_types=()):
         refined_input_text, index_refined_mapping_raw, index_raw_mapping_refined = self.normalize_text(input_text)
 
-        if ner_results and ner_keys:
-            ner_results = {i: [[{'text': refined_input_text[index_raw_mapping_refined[_['start_offset']][0]:
-                                                            index_raw_mapping_refined[_['end_offset']][-1] + 1],
-                                 'start_offset': index_raw_mapping_refined[_['start_offset']][0],
-                                 'end_offset': index_raw_mapping_refined[_['end_offset']][-1],
-                                 } for _ in j] for j in ner_results.get(i, [])] for i in ner_keys}
+        if entities_result and entity_types:
+            entities_result = {entity_type: [[{'text': refined_input_text[
+                                                       index_raw_mapping_refined[entity_part['start_offset']][0]:
+                                                       index_raw_mapping_refined[entity_part['end_offset']][-1] + 1],
+                                               'start_offset': index_raw_mapping_refined[entity_part['start_offset']][
+                                                   0],
+                                               'end_offset': index_raw_mapping_refined[entity_part['end_offset']][-1],
+                                               } for entity_part in entity]
+                                             for entity in entities_result.get(entity_type, [])]
+                               for entity_type in entity_types}
 
-        return refined_input_text, ner_results, index_refined_mapping_raw, index_raw_mapping_refined
+        return refined_input_text, entities_result, index_refined_mapping_raw, index_raw_mapping_refined
 
     def normalize_text(self, input_text):
         # 规范化处理原始文本，得到处理后的文本,原始文本和处理后文本的互相index映射
@@ -141,7 +304,7 @@ class InputNormalizer:
             text = self.process_token(tokens_list[index])
 
             if (last_end_index < offsets[0] and index != tokens_list_len - 1 and index != 0) \
-                    or (index==tokens_list_len-1 and last_end_index < offsets[0]):
+                    or (index == tokens_list_len - 1 and last_end_index < offsets[0]):
                 refined_input_text.append(' ')
                 index_refined_mapping_raw.append(
                     (offsets_mapping[index - 1][-1] + 1, offsets[0] - 1))
@@ -214,10 +377,10 @@ class InputNormalizer:
                         [{'text': 'ankles', 'start_offset': 104, 'end_offset': 109},
                          {'text': 'swelling', 'start_offset': 119, 'end_offset': 126}]],
         }
-        print(self.run(sample, ner_keys=['NER_ADR']))
+        print(self.run(input_text=sample['input_text'], entities_result=sample, entity_types=['NER_ADR']))
 
 
-class LabelNormalizer:
+class EntitiesResultNormalizer:
     def __init__(self,
                  token_start_add=(),
                  token_end_add=(),
@@ -239,28 +402,28 @@ class LabelNormalizer:
 
         self.linking_punc = ['-', '_', '-', '-']  # token间的链接符号
 
-    def run(self, input_text, ner_results, ner_keys, entity_repair_mode='complete'):
+    def run(self, input_text, entities_result, entity_types, entity_repair_mode='complete'):
         # entity_repair_mode表示截断实体是要补全还是去除
         input_text = input_text
         input_text_tokens = self.regex_tokenizer(input_text)
         texts_list = input_text_tokens['texts']
         offsets_mapping = input_text_tokens['offsets_mapping']
 
-        for ner_key in ner_keys:
-            label_entities = ner_results.get(ner_key, [])
-            refined_label_entities = self.normalize_label_entities(input_text, label_entities,
-                                                                   texts_list, offsets_mapping,
+        for entity_type in entity_types:
+            entities_result[entity_type] = self.normalize_entities(input_text,
+                                                                   entities_result.get(entity_type, []),
+                                                                   texts_list,
+                                                                   offsets_mapping,
                                                                    entity_repair_mode=entity_repair_mode)
-            ner_results[ner_key] = refined_label_entities
-        return ner_results
+        return entities_result
 
-    def normalize_label_entities(self, input_text, label_entities, texts_list, offsets_mapping,
-                                 entity_repair_mode='complete'):
+    def normalize_entities(self, input_text, entities, texts_list, offsets_mapping,
+                           entity_repair_mode='complete'):
         # 规范一个标签下的所有实体，交叉重复的实体去除
         entities_index = []
-        for entity in label_entities:
+        for entity in entities:
             normalized_entity = self.normalize_entity(entity, texts_list, offsets_mapping,
-                                                        entity_repair_mode=entity_repair_mode)
+                                                      entity_repair_mode=entity_repair_mode)
             if normalized_entity:
                 entities_index.append(normalized_entity)
 
@@ -369,9 +532,9 @@ class LabelNormalizer:
             if refined_start_offset_index == -1:
                 if offsets[0] <= entity_start_offset <= offsets[1]:
                     if entity_repair_mode == 'delete':
-                        if entity_start_offset==offsets[0]:
+                        if entity_start_offset == offsets[0]:
                             refined_start_offset_index = i
-                        elif entity_start_offset>offsets[0]:
+                        elif entity_start_offset > offsets[0]:
                             if i != len(offsets_mapping) - 1:
                                 refined_start_offset_index = i + 1
                             else:
@@ -452,14 +615,21 @@ class LabelNormalizer:
         sub_text_list = texts_list[entity_start_index:entity_end_index + 1]
         for left_punc, right_punc in [('(', ')'), ('[', ']')]:
             if sub_text_list.count(left_punc) == 1 and sub_text_list.count(right_punc) == 0 and \
-                    entity_end_index < len(texts_list) - 1 and texts_list[entity_end_index + 1] == right_punc:
-                if texts_list[entity_start_index] != left_punc:
-                    entity_end_index = entity_end_index + 1
+                    entity_end_index < len(texts_list) - 1 and texts_list[entity_end_index + 1] == right_punc and \
+                    entity_start_index < len(texts_list) - 1:
+                if texts_list[entity_start_index] == left_punc:
+                    entity_start_index = entity_start_index + 1
 
             if sub_text_list.count(right_punc) == 1 and sub_text_list.count(left_punc) == 0 and \
-                    entity_start_index > 0 and texts_list[entity_start_index - 1] == left_punc:
-                if texts_list[entity_end_index] != right_punc:
-                    entity_start_index = entity_start_index - 1
+                    entity_start_index > 0 and texts_list[
+                entity_start_index - 1] == left_punc and entity_end_index >= 1:
+                if texts_list[entity_end_index] == right_punc:
+                    entity_end_index = entity_end_index - 1
+
+            if sub_text_list.count(right_punc) == 1 and sub_text_list.count(left_punc) == 1 and \
+                    texts_list[entity_start_index] == left_punc and texts_list[entity_end_index] == right_punc:
+                entity_end_index = entity_end_index - 1
+                entity_start_index = entity_start_index + 1
 
         if entity_start_index == entity_end_index and texts_list[entity_start_index] in self.token_remove:
             entity_start_index = entity_start_index + 1
@@ -483,81 +653,178 @@ class LabelNormalizer:
                  {'start_offset': 86, 'end_offset': 88, 'text': 'and'}],
             ],
         }
+
         input_text = 'I was in deniel that the statins would cause ME side effects - I have Terrible muscle and joint pain , Burning sensations in neck shoulders and upper chest .'
-        self.token_remove = ['and']
-        self.token_end_remove = ['in']
-        print(self.run(input_text=input_text, ner_results=e, ner_keys=['NER_DRUG']))
+
+        r = {
+            'input_text': 'Up to 10 PTCL patients will receive nanatinostat 20 mg orally once daily, days 1-4 per week.',
+            'NER_clinical_trial.indications': [[{'start_offset': 9, 'end_offset': 11, 'text': 'PTC'}]]}
+        e = r
+        input_text = r['input_text']
+        # self.token_remove = ['and']
+        # self.token_end_remove = ['in']
+        print(self.run(
+            input_text=input_text, entities_result=e, entity_types=['NER_clinical_trial.indications'],
+            entity_repair_mode='complete'
+        ))
 
 
-class NERNormalizer:
-    def __init__(self, input_normalizer: InputNormalizer = None, label_normalizer: LabelNormalizer = None):
-        if input_normalizer:
-            self.input_normalizer = input_normalizer
+class SamplesNormalizer:
+    def __init__(self,
+                 input_text_normalizer: InputTextNormalizer = None,
+                 entities_result_normalizer: EntitiesResultNormalizer = None,
+                 sentence_tokenizer=None,
+                 model_tokenizer=None,
+                 sliding_window=0.2):
+        if input_text_normalizer:
+            self.input_text_normalizer = input_text_normalizer
         else:
-            self.input_normalizer = InputNormalizer()
+            self.input_text_normalizer = InputTextNormalizer()
 
-        if label_normalizer:
-            self.label_normalizer = label_normalizer
+        if entities_result_normalizer:
+            self.entities_result_normalizer = entities_result_normalizer
         else:
-            self.label_normalizer = LabelNormalizer()
+            self.entities_result_normalizer = EntitiesResultNormalizer()
+        self.sentence_tokenizer = sentence_tokenizer
+        self.model_tokenizer = model_tokenizer
+        self.sliding_window = sliding_window
 
-    def run(self, ner_sample, ner_keys, sentence_tokenizer=None, keep_features=None):
-        if isinstance(ner_sample, list):
-            for i, j in enumerate(ner_sample): j['run_sample_id'] = i
-            if not keep_features:
-                keep_features = ['run_sample_id']
-            else:
-                keep_features.append('run_sample_id')
-            if sentence_tokenizer:
-                ner_samples = []
-                for i in ner_sample:
-                    all_samples = split_sample_and_label(sample=i,
-                                                         sentence_tokenizer=sentence_tokenizer,
-                                                         ner_keys=ner_keys,
-                                                         keep_features=keep_features)
-                    ner_samples.extend(all_samples)
-                keep_features.append('run_sentence_id')
-            else:
-                ner_samples = ner_sample
-        else:
-            if sentence_tokenizer:
-                ner_samples = split_sample_and_label(sample=ner_sample,
-                                                     sentence_tokenizer=sentence_tokenizer,
-                                                     ner_keys=ner_keys,
-                                                     keep_features=keep_features)
-                if not keep_features:
-                    keep_features = ['run_sentence_id']
-                else:
-                    keep_features.append('run_sentence_id')
-            else:
-                ner_samples = [ner_sample]
+    def run(self, samples, entity_types, keep_features=None, return_addition_info=False):
+        if not isinstance(samples, list):
+            samples = [samples]
 
-        from algorithms_ai.utils.parallel_process_utils.mpire_utils import apply_mpire
-        refined_ner_samples = apply_mpire(func=self.process_one_sample,
-                                          data_list=ner_samples,
-                                          job_num=4,
-                                          ner_keys=ner_keys)
+        is_right_sample = [check_sample(sample=sample, entity_types=entity_types) for sample in samples]  # 检查样本是否正确
+        run_samples = []
+        for sample_index, sample in enumerate(samples):
+            if is_right_sample[sample_index]:
+                sample['raw_sample_id'] = sample_index
+                run_samples.append(sample)
+            else:
+                logger.error(f'error sample index:{sample_index},input_text:{sample["input_text"]}')
+        keep_features = update_keep_features(keep_features, 'raw_sample_id')
+
+        model_sampless = apply_mpire(func=self.process_raw_sample,
+                                     data_list=run_samples,
+                                     job_num=4,
+                                     entity_types=entity_types,
+                                     sentence_tokenizer=self.sentence_tokenizer,
+                                     model_tokenizer=self.model_tokenizer,
+                                     sliding_window=self.sliding_window,
+                                     keep_features=keep_features,
+                                     return_addition_info=return_addition_info
+                                     )
+        return [j for i in model_sampless for j in i]
+
+    def process_raw_sample(self, sample, entity_types, sentence_tokenizer=None, model_tokenizer=None,
+                           sliding_window=0.2, keep_features=None, return_addition_info=False):
+        """
+        # 输入原始文本或原始文本+结果，输出处理后的文本+处理后的结果
+        # 1. 先切句---分成若干样本, run_sample_id,sentence_split_offsets
+        # 2. 再进一步切model-max-length和结果,model
+        # 3. 再预处理数据和结果--input_normalizer
+        """
+        order_entity_part_in_one_sample(sample, entity_types)
+        sentence_samples = split_sample_to_sentence_samples(sample=sample,
+                                                            sentence_tokenizer=sentence_tokenizer,
+                                                            entity_types=entity_types,
+                                                            keep_features=keep_features)
+        keep_features = update_keep_features(keep_features, 'sentence_split_offsets')
+
+        model_samples = []
+        for sentence_sample in sentence_samples:
+            model_sample = split_sample_with_sliding_window(sample=sentence_sample,
+                                                            model_tokenizer=model_tokenizer,
+                                                            sliding_window=sliding_window,
+                                                            entity_types=entity_types,
+                                                            keep_features=keep_features)
+            model_samples.extend(model_sample)
+        if model_tokenizer:
+            keep_features = update_keep_features(keep_features, 'sliding_window_offsets')
+
+        model_samples = [self.process_model_sample(model_sample=model_sample,
+                                                   entity_types=entity_types,
+                                                   keep_features=keep_features,
+                                                   return_addition_info=return_addition_info,
+                                                   entity_repair_mode='complete'
+                                                   ) for model_sample in model_samples]
+        return model_samples
+
+    def process_model_sample(self, model_sample, entity_types, keep_features=None, return_addition_info=False,
+                             entity_repair_mode='complete'):
+        # 处理要输入模型的单个样本
+        input_text = model_sample['input_text']
+        entities_result = {i: j for i, j in model_sample.items() if i in entity_types}
+        model_input_text, model_entities_result, refined_mapping_raw, raw_mapping_refined = \
+            self.input_text_normalizer.run(input_text=input_text,
+                                           entities_result=entities_result,
+                                           entity_types=entity_types)
+
+        model_entities_result = self.entities_result_normalizer.run(input_text=model_input_text,
+                                                                    entities_result=model_entities_result,
+                                                                    entity_types=entity_types,
+                                                                    entity_repair_mode=entity_repair_mode)
+        refined_model_sample = {'input_text': model_input_text}
+        refined_model_sample.update(model_entities_result)
         if keep_features:
-            for i in range(len(refined_ner_samples)):
-                for j in keep_features:
-                    if j in ner_samples[i]:
-                        refined_ner_samples[i][j] = ner_samples[i][j]
+            refined_model_sample.update({i: model_sample.get(i) for i in keep_features})
+        if return_addition_info:
+            refined_model_sample.update(
+                {
+                    'refined_mapping_raw': refined_mapping_raw,
+                    'raw_mapping_refined': raw_mapping_refined
+                }
+            )
 
-        return refined_ner_samples
+        return refined_model_sample
 
-    def process_one_sample(self, ner_sample, ner_keys):
-        input_text = ner_sample['input_text']
-        ner_results = {i: j for i, j in ner_sample.items() if i in ner_keys}
-        refined_input_text, refined_ner_results, refined_mapping_raw, raw_mapping_refined = \
-            self.input_normalizer.run(input_text=input_text,
-                                      ner_results=ner_results,
-                                      ner_keys=ner_keys)
-        refined_ner_results = self.label_normalizer.run(input_text=refined_input_text,
-                                                        ner_results=refined_ner_results,
-                                                        ner_keys=ner_keys)
-        refined_ner_sample = {'input_text': refined_input_text}
-        refined_ner_sample.update(refined_ner_results)
-        return refined_ner_sample
+    def postprocess_model_samples(self, raw_samples, model_samples, entity_types, keep_feature=None):
+        # 输入原始文本和处理后的文本和模型预测的结果，输出原始文本上的标签
+        # 模型的预测结果，不仅包含模型的预测，还要包含原始的一些信息，把原始信息覆盖到模型结果中
+        assert 'refined_mapping_raw' in model_samples[0]
+        assert 'raw_sample_id' in model_samples[0]
+        raw_samples_dict = dict()  # 对于每个原始样本，收集模型结果的信息
+        for model_sample in model_samples:
+            refined_mapping_raw = model_sample['refined_mapping_raw']
+
+            if model_sample['raw_sample_id'] not in raw_samples_dict:
+                raw_samples_dict[model_sample['raw_sample_id']] = {entity_type: [] for entity_type in entity_types}
+            for entity_type in entity_types:
+                for entity in model_sample.get(entity_type, []):
+                    sliding_window_start = model_sample.get('sliding_window_offsets')
+                    if not sliding_window_start:
+                        sliding_window_start = 0
+                    else:
+                        sliding_window_start = sliding_window_start[0]
+                    sentence_split_start = model_sample.get('sentence_split_offsets')
+                    if not sentence_split_start:
+                        sentence_split_start = 0
+                    else:
+                        sentence_split_start = sentence_split_start[0]
+
+                    raw_start_end = [(refined_mapping_raw[entity_part['start_offset']][
+                                          0] + sliding_window_start + sentence_split_start,
+                                      refined_mapping_raw[entity_part['end_offset']][
+                                          -1] + sliding_window_start + sentence_split_start
+                                      ) for entity_part in entity]
+                    if raw_start_end not in raw_samples_dict[model_sample['raw_sample_id']][entity_type]:
+                        raw_samples_dict[model_sample['raw_sample_id']][entity_type].append(raw_start_end)
+
+        refined_samples = []
+        for sample_index, raw_sample in enumerate(raw_samples):
+            sample = {'input_text': raw_sample['input_text']}
+
+            for entity_type in entity_types:
+                entities = raw_samples_dict.get(sample_index, dict()).get(entity_type, [])
+                entities = [[{'text': raw_sample['input_text'][entity_part[0]:entity_part[1] + 1],
+                              'start_offset': entity_part[0],
+                              'end_offset': entity_part[1]}
+                             for entity_part in entity] for entity in entities]
+                sample[entity_type] = entities
+
+            if keep_feature:
+                for i in keep_feature: sample[i] = raw_sample.get(i)
+            refined_samples.append(sample)
+        return refined_samples
 
     def test(self):
         sample = {
@@ -577,22 +844,47 @@ class NERNormalizer:
             'features': 1
         }
         sentence_tokenizer = RegexTokenizer(regex='\n').run
-        print(self.run(sample, ['NER_ADR', 'NER_Drug'], keep_features=['features']))
 
-        print(self.run([sample] * 2, ['NER_ADR', 'NER_Drug'], sentence_tokenizer=sentence_tokenizer,
-                       keep_features=['features']))
+        from algorithms_ai.deep_learning.ner_bio.run_ner_bio import get_tokenizer
 
-    def test2(self):
-        t =' [ BriefTitle]:A Study of SHR-1501 Alone or in Combination With BCG in Subjects With NMIBC'
-        a,b,c,d = self.input_normalizer.run(input_text=t,
-                                      ner_results=None,
-                                      ner_keys=None)
-        print(a)
-        print(b)
-        print(c)
-        print(d)
-        print(2)
+        tokenizer = get_tokenizer(
+            # checkpoint="/large_files/pretrained_pytorch/microsoft_BiomedNLP-BiomedBERT-large-uncased-abstract",
+            checkpoint='/large_files/pretrained_pytorch/pubmed_bert_base_cased/',
+            model_max_length=50
+        )
+        # sample = {'input_text': sample['input_text']}
+        self.input_text_normalizer = InputTextNormalizer(is_en_text_lower=True)
+
+        # print(self.preprocess_one_raw_sample(sample, ['NER_ADR', 'NER_Drug'],
+        #                                      sentence_tokenizer=sentence_tokenizer,
+        #                                      model_tokenizer=tokenizer,
+        #                                      keep_features=['features']))
+        ner_samples = [sample] * 2
+        ner_samples.append(
+            {'input_text': 'dasgadg'}
+        )
+        for i in ner_samples: order_entity_part_in_one_sample(i, ['NER_ADR', 'NER_Drug'])
+
+        self.sentence_tokenizer = sentence_tokenizer
+        self.model_tokenizer = tokenizer
+        self.sliding_window = 0.2
+
+        ner_sample_for_model = self.run(ner_samples, ['NER_ADR', 'NER_Drug'],
+                                        keep_features=['features'],
+                                        return_addition_info=True
+                                        )
+        print(ner_sample_for_model)
+
+        res = self.postprocess_model_samples(
+            raw_samples=ner_samples,
+            model_samples=ner_sample_for_model,
+            entity_types=['NER_ADR', 'NER_Drug'],
+            keep_feature=None
+        )
+        print(res)
+
 
 if __name__ == '__main__':
-    NERNormalizer().test()
-
+    InputTextNormalizer().test()
+    EntitiesResultNormalizer().test()
+    SamplesNormalizer().test()

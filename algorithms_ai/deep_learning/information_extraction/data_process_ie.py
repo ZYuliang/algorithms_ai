@@ -14,7 +14,7 @@ def search_token_index(offset_mapping, char_index):
     return -1
 
 
-def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
+def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None, keep_features=None):
     """
     处理标注格式的数据
     data={'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, '
@@ -43,7 +43,7 @@ def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
         for sort_id, entity_info in enumerate(entity2id):
             entity_type, entity_id = entity_info[0], entity_info[1]
             assert entity_id == sort_id
-            entity_res = sample.get(entity_type)
+            entity_res = sample.get(entity_type, [])
             for each_res in entity_res:
                 token_index = set()
                 for each_mention in each_res:
@@ -97,7 +97,7 @@ def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
         head_labels = sequence_padding([list(i) for i in head_labels]) if relation2id else []
         tail_labels = sequence_padding([list(i) for i in tail_labels]) if relation2id else []
 
-    return {
+    return_sample = {
         'input_text': text,
         # 'entities': {i:j for i,j in sample.items() if i.lower().startswith('ner')},
         # 'relations': sample.get('relations', []),
@@ -109,14 +109,21 @@ def process_one_sample(sample, tokenizer, entity2id=None, relation2id=None):
         'offset_mapping': encoder_text["offset_mapping"],
         'labels': [entity_labels, relation_labels, head_labels, tail_labels],
     }
+    if keep_features:
+        for i in keep_features: return_sample[i] = sample.get(i)
+
+    return return_sample
+
 
 if __name__ == '__main__':
-    data={'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, '
-                       'stomach discomfort and leg heaviness, low bp and pulse.',
-         'NER_ADR': [
-             [{'end_offset': 49, 'start_offset': 43, 'text': 'fatigue'}],
-             [{'end_offset': 112, 'start_offset': 110, 'text': 'low'},
-              {'end_offset': 125, 'start_offset': 121, 'text': 'pulse'}]]
-         }
-    from algorithms_ai.deep_learning.information_extraction.run_ie import get_tokenizer
-    print(process_one_sample(data,tokenizer=get_tokenizer(),entity2id={'NER_ADR':0}))
+    data = {
+        'input_text': 'After 1 more month had episodes of extreme fatigue, increased belching, stomach discomfort and '
+                      'leg heaviness, low bp and pulse.',
+        'NER_ADR': [[{'end_offset': 49, 'start_offset': 43, 'text': 'fatigue'}],
+                    [{'end_offset': 69, 'start_offset': 52, 'text': 'increased belching'}],
+                    [{'end_offset': 89, 'start_offset': 72, 'text': 'stomach discomfort'}],
+                    [{'end_offset': 107, 'start_offset': 95, 'text': 'leg heaviness'}],
+                    [{'end_offset': 115, 'start_offset': 110, 'text': 'low bp'}],
+                    [{'end_offset': 112, 'start_offset': 110, 'text': 'low'},
+                     {'end_offset': 125, 'start_offset': 121, 'text': 'pulse'}]]}
+

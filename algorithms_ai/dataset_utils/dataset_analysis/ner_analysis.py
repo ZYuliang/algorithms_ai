@@ -7,6 +7,9 @@
 
 from collections import Counter
 
+import os
+import pandas as pd
+
 from algorithms_ai.dataset_utils.dataset_analysis.base_analysis import analyze_unordered_numerical_array
 
 
@@ -62,6 +65,12 @@ def compare_ner_results(old_results, new_results, entities, old_keep_features, r
             sub_info['increased_entities'] = increased_entities
             sub_info['right_entities'] = right_entities
 
+            if not increased_entities and not missing_entities:
+                is_right = True
+            else:
+                is_right = False
+            sub_info['is_right'] = is_right
+
             all_info.append(sub_info)
 
             for i in missing_entities:
@@ -70,7 +79,6 @@ def compare_ner_results(old_results, new_results, entities, old_keep_features, r
             for i in increased_entities:
                 all_increased_entities[entity].append('|'.join([j[-1].lower() for j in i]))
 
-    from collections import Counter
     summary_info = []
     for entity in entities:
         missing_summary = sorted(Counter(all_missing_entities[entity]).items(), key=lambda x: x[-1], reverse=True)
@@ -96,17 +104,24 @@ def compare_ner_results(old_results, new_results, entities, old_keep_features, r
                 }
             )
 
-    import pandas as pd
     all_info = pd.DataFrame(all_info)
     summary_info = pd.DataFrame(summary_info)
 
+    if not os.path.exists(os.path.dirname(result_xlsx)):
+        os.mkdir(os.path.dirname(result_xlsx))
+
     with pd.ExcelWriter(result_xlsx) as writer:
-        all_info.to_excel(writer, sheet_name="sample_detail", index=False)
+        all_info.to_excel(writer, sheet_name="detail", index=False)
         summary_info.to_excel(writer, sheet_name="entity_summary", index=False)
 
-    if eval_mode:
-        from algorithms_ai.deep_learning.metric.ner_metric import entity_recognition_metric_for_data
-        entity_recognition_metric_for_data(old_results, new_results, entities)
+        if eval_mode:
+            from algorithms_ai.deep_learning.metric.ner_metric import entity_recognition_metric_for_data
+            eval_res = entity_recognition_metric_for_data(old_results, new_results, entities,
+                                                          return_score_key=['micro_precision', 'micro_recall',
+                                                                            'micro_f1',
+                                                                            'micro_score', 'accuracy'])
+            eval_res = pd.DataFrame([{'evaluation_standard': i, 'score': j} for i, j in eval_res.items()])
+            eval_res.to_excel(writer, sheet_name="score", index=False)
 
 
 def ner_analysis(ner_samples=None, tokenizer=None, entities=None):
@@ -173,7 +188,16 @@ def collect_entity_info(ner_samples=None, tokenizer=None, entities=None):
             entity_info[entity]['entities'].append(entities)
 
             if tokenizer:
-                entity_tokens = [tokenizer(i)['texts'] for i in entities]
+                entity_tokens = []
+
+                for i in entities:
+                    tokened_res = tokenizer(i)
+                    if 'texts' in tokened_res:
+                        entity_tokens.append(tokened_res['texts'])
+                    else:
+                        if 'input_ids' in tokened_res:
+                            entity_tokens.append(tokenizer.convert_ids_to_tokens(tokened_res['input_ids']))
+
                 entity_info[entity]['entity_tokens'].append(entity_tokens)
 
     return entity_info
@@ -225,60 +249,60 @@ if __name__ == '__main__':
                       'conditionlist': ['Low-grade Glioma']}, 'nct_id': 'NCT05566795', 'field': 'BriefSummary'}
     ]
 
-    # from algorithms_ai.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
+    from algorithms_ai.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
+
+    ner_analysis(ner_samples=d, tokenizer=RegexTokenizer(), entities=['clinical_trial.patient_labels',
+                                                                      'clinical_trial.indications',
+                                                                      'clinical_trial.clinical_stage'
+                                                                      ])
     #
-    # ner_analysis(ner_samples=d, tokenizer=RegexTokenizer(), entities=['clinical_trial.patient_labels',
-    #                                                                         'clinical_trial.indications',
-    #                                                                         'clinical_trial.clinical_stage'
-    #                                                                         ])
-
-    old_results = [{
-        'input_text': 'sdf',
-        'id': 2,
-        'entity_a': [
-            [{'start_offset': 1, 'end_offset': 4, 'text': 'har'}, {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-        ],
-        'entity_b': [
-            [{'start_offset': 1, 'end_offset': 4, 'text': 'har'}, {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-        ]
-
-    },
-        {
-            'input_text': 'adfh',
-
-            'id': 0,
-            'entity_a': [
-                [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
-                 {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-            ],
-            'entity_b': [
-                [{'start_offset': 2, 'end_offset': 4, 'text': 'har'}]
-            ]
-        }
-    ]
-
-    new_results = [
-        {
-            'entity_a': [
-                [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
-                 {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-            ],
-            'entity_b': [
-                [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
-                 {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-            ]
-        },
-        {
-            'entity_a': [
-                [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
-                 {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-            ],
-            'entity_b': [
-                [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
-                 {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
-            ]
-        }
-    ]
-    entities = ['entity_a', 'entity_b']
-    old_keep_features = ['input_text', 'id']
-    compare_ner_results(old_results, new_results, entities, old_keep_features, result_xlsx='./r.xlsx')
+    # old_results = [{
+    #     'input_text': 'sdf',
+    #     'id': 2,
+    #     'entity_a': [
+    #         [{'start_offset': 1, 'end_offset': 4, 'text': 'har'}, {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #     ],
+    #     'entity_b': [
+    #         [{'start_offset': 1, 'end_offset': 4, 'text': 'har'}, {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #     ]
+    #
+    # },
+    #     {
+    #         'input_text': 'adfh',
+    #
+    #         'id': 0,
+    #         'entity_a': [
+    #             [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
+    #              {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #         ],
+    #         'entity_b': [
+    #             [{'start_offset': 2, 'end_offset': 4, 'text': 'har'}]
+    #         ]
+    #     }
+    # ]
+    #
+    # new_results = [
+    #     {
+    #         'entity_a': [
+    #             [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
+    #              {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #         ],
+    #         'entity_b': [
+    #             [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
+    #              {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #         ]
+    #     },
+    #     {
+    #         'entity_a': [
+    #             [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
+    #              {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #         ],
+    #         'entity_b': [
+    #             [{'start_offset': 1, 'end_offset': 4, 'text': 'har'},
+    #              {'start_offset': 8, 'end_offset': 12, 'text': 'har'}]
+    #         ]
+    #     }
+    # ]
+    # entities = ['entity_a', 'entity_b']
+    # old_keep_features = ['input_text', 'id']
+    # compare_ner_results(old_results, new_results, entities, old_keep_features, result_xlsx='./r.xlsx')

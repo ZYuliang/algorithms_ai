@@ -123,7 +123,7 @@ if __name__ == '__main__':
          'NER_clinical_trial.therapy_labels': [], 'NER_clinical_trial.drug': [],
          'nct_id': 'NCT05797168', 'field': 'OfficialTitle', 'run_sample_id': 1, 'run_sentence_id': 0}
 
-    from zyl_utils.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
+    from algorithms_ai.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
 
     pre_tokenizer = RegexTokenizer().run
 

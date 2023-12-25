@@ -44,10 +44,10 @@ class NER_BIO:
     def get_dataset_dict(train_data=None, tokenizer=None, entities=None, label2id=None, val_data=None,
                          dataset_dict_dir='./test_data', use_file_cache=True):
 
-        from zyl_utils.deep_learning.ner_bio.data_process_ner_bio import process_one_sample, tokenize_and_align_labels
-        from zyl_utils.dataset_utils.dataset_utils import save_and_load_dataset_dict
+        from algorithms_ai.deep_learning.ner_bio.data_process_ner_bio import process_one_sample, tokenize_and_align_labels
+        from algorithms_ai.dataset_utils.dataset_utils import save_and_load_dataset_dict
         from datasets import DatasetDict, Dataset
-        from zyl_utils.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
+        from algorithms_ai.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
         pre_tokenizer = RegexTokenizer().run
 
         @save_and_load_dataset_dict(dataset_dir=dataset_dict_dir)
@@ -152,7 +152,7 @@ class NER_BIO:
     @staticmethod
     def get_compute_metrics(id2label):
         from functools import partial
-        from zyl_utils.deep_learning.ner_bio.metric_ner_bio import compute_metrics_for_ner
+        from algorithms_ai.deep_learning.ner_bio.metric_ner_bio import compute_metrics_for_ner
         return partial(
             compute_metrics_for_ner,
             id2label=id2label
@@ -180,7 +180,7 @@ class NER_BIO:
               ):
         if cuda_devices:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
-
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
         tokenizer = get_tokenizer(
             checkpoint=self.model_path,
             model_max_length=model_max_length,
@@ -239,8 +239,8 @@ class NER_BIO:
                                 checkpoint_path=self.model_path)
 
         from datasets import Dataset
-        from zyl_utils.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
-        from zyl_utils.deep_learning.ner_bio.data_process_ner_bio import process_one_sample, tokenize_and_align_labels
+        from algorithms_ai.utils.tokenizer_utils.regex_tokenizer import RegexTokenizer
+        from algorithms_ai.deep_learning.ner_bio.data_process_ner_bio import process_one_sample, tokenize_and_align_labels
 
         pre_tokenizer = RegexTokenizer().run
 
@@ -274,7 +274,7 @@ class NER_BIO:
         )
         trainer.evaluate(test_data)
 
-    def inference(self, to_predicts, cuda_devices, per_device_eval_batch_size):
+    def inference(self, to_predicts, cuda_devices, per_device_eval_batch_size,label_normalizer=None):
         if cuda_devices:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -303,7 +303,7 @@ class NER_BIO:
             )
         import numpy as np
         from datasets import Dataset
-        from zyl_utils.deep_learning.ner_bio.ner_bio_utils import get_entity_by_bio
+        from algorithms_ai.deep_learning.ner_bio.ner_bio_utils import get_entity_by_bio
 
         test_data = self.tokenizer(to_predicts, truncation=True, return_offsets_mapping=True)
         test_data = Dataset.from_dict(test_data)
@@ -327,7 +327,7 @@ class NER_BIO:
                     continue
 
                 start_offset = d['offset_mapping'][each_entity[0][0]][0]
-                end_offset = d['offset_mapping'][min(each_entity[0][-1], len(d['offset_mapping']) - 1)][-1] - 1
+                end_offset = d['offset_mapping'][min(each_entity[0][-1], len(d['offset_mapping']) - 2)][-1] - 1
                 text = input_text[start_offset:end_offset + 1]
                 refined_res[each_entity[1]].append(
                     [{
@@ -336,6 +336,11 @@ class NER_BIO:
                         'text': text
                     }]
                 )
+            if label_normalizer:
+                refined_res = label_normalizer.run(input_text=refined_res['input_text'],
+                                                   ner_results=refined_res,
+                                                   ner_keys=[i[1] for i in pred_entities])
+
             refined_data.append(refined_res)
 
         return refined_data

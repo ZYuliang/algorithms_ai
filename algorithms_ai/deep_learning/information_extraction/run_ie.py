@@ -57,22 +57,18 @@ class InformationExtraction:
         # from zyl_utils.dataset_utils.dataset_utils import save_and_load_dataset_dict
         from algorithms_ai.utils.file_utils.file_utils import save_and_load
 
-        @save_and_load(file_name=dataset_dict_dir)
+        @save_and_load()
         def get_dataset_dict_func():
             train_dataset = [process_one_sample(i, tokenizer, entity2id) for i in train_data]
             if val_data:
                 val_dataset = [process_one_sample(i, tokenizer, entity2id) for i in val_data]
                 dt = {'train_for_model': train_dataset,
                       'val_for_model': val_dataset}
-                # dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset),
-                #                   'val_for_model': Dataset.from_list(val_dataset)})
             else:
                 dt = {'train_for_model': train_dataset}
-                # dt = DatasetDict({'train_for_model': Dataset.from_list(train_dataset)})
-
             return dt
 
-        return get_dataset_dict_func(use_file_cache=use_file_cache)
+        return get_dataset_dict_func(results_file_name=dataset_dict_dir, use_file_cache=use_file_cache)
 
     @staticmethod
     def init_model(entity2id=None, relation2id=None, head_size=64, encoder_type='bert',
@@ -204,7 +200,7 @@ class InformationExtraction:
               ):
         if cuda_devices:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
-
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
         tokenizer = get_tokenizer(
             encoder_type=self.encoder_type,
             encoder_path=self.encoder_path,
@@ -322,7 +318,7 @@ class InformationExtraction:
         trainer.evaluate(test_data)
 
     def inference(self, to_predicts, cuda_devices, per_device_eval_batch_size, threshold=0,
-                  entity_repair_mode='complete'):
+                  entities_result_normalizer=None, entity_repair_mode='complete'):
         if cuda_devices:
             os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -366,17 +362,15 @@ class InformationExtraction:
         all_offset_mapping = [i['offset_mapping'] for i in test_data]
         all_texts = [i['input_text'] for i in test_data]
 
-        refined_res = []
+        model_samples_results = []
         assert len(all_preds) == len(all_offset_mapping)
         id2entity = {j: i for i, j in self.model.config.entity2id.items()}
 
-        from algorithms_ai.dataset_utils.ner_process_utils import LabelNormalizer
-        l_n = LabelNormalizer().run
         for i in range(len(all_preds)):
-            sub_res = dict()
+            model_sample_result = dict()
             offset_mapping = all_offset_mapping[i]
             input_text = all_texts[i]
-            sub_res['input_text'] = input_text
+            model_sample_result['input_text'] = input_text
 
             for entity_id, entity_res in all_preds[i].items():
                 refined_entity_res = [[{'start_offset': offset_mapping[each_entity_part[0]][0],
@@ -385,11 +379,14 @@ class InformationExtraction:
                                                            offset_mapping[each_entity_part[-1]][1]]}
                                        for each_entity_part in each_entity]
                                       for each_entity in entity_res]
-                sub_res[id2entity[entity_id]] = refined_entity_res
-            sub_res = l_n(input_text=input_text, ner_results=sub_res,
-                          ner_keys=list(id2entity.values()), entity_repair_mode=entity_repair_mode)
-            refined_res.append(sub_res)
-        return refined_res
+                model_sample_result[id2entity[entity_id]] = refined_entity_res
+            if entities_result_normalizer:
+                model_sample_result = entities_result_normalizer.run(input_text=input_text,
+                                                         entities_result=model_sample_result,
+                                               entity_types=list(id2entity.values()),
+                                               entity_repair_mode=entity_repair_mode)
+            model_samples_results.append(model_sample_result)
+        return model_samples_results
 
     def test(self, test_train=False, test_eval=False, test_predict=False):
         data = [
@@ -413,8 +410,8 @@ class InformationExtraction:
             self.train(train_data=data,
                        val_data=data,
                        dataset_dict_dir='./tmp/dataset.pickle',
-                       use_file_cache=True,
-                       model_max_length=108,
+                       use_file_cache=False,
+                       model_max_length=20,
                        special_tokens=['[adsf]'],
 
                        cuda_devices='2,3',
@@ -447,8 +444,15 @@ class InformationExtraction:
             self.encoder_path = checkpoint
             from algorithms_ai.deep_learning.deep_learning_utils import get_train_date
             to_predicts = [i['input_text'] for i in data]
+
+            from algorithms_ai.dataset_utils.ner_process_utils import LabelNormalizer
+            l_n = LabelNormalizer(token_remove=['(', ')', ']', '['],
+                                  token_start_remove=[')', ']'],
+                                  token_end_remove=['[', '(', '.', ','], )
+            l_n.linking_punc = []
+
             res = self.inference(to_predicts, cuda_devices='2,3', per_device_eval_batch_size=64, threshold=2)
-            res2 = self.inference(to_predicts[0:50], cuda_devices='2,3', per_device_eval_batch_size=64, threshold=2)
+            # res2 = self.inference(to_predicts[0:50], cuda_devices='2,3', per_device_eval_batch_size=64, threshold=2)
             for i in range(len(res)):
                 print('*' * 30)
                 print(res[i])
@@ -460,4 +464,4 @@ class InformationExtraction:
 
 
 if __name__ == '__main__':
-    InformationExtraction().test(test_train=False, test_eval=False, test_predict=True)
+    InformationExtraction().test(test_train=True, test_eval=False, test_predict=False)
