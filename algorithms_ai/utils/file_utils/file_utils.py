@@ -52,7 +52,7 @@ def save_data(data, filepath, file_type=None, mode='w'):
     file_suffix = '.' + filepath.split('.')[-1]
     if not file_type:
         file_type = suffix_map_file_type.get(file_suffix)
-    if file_suffix not in file_type_map_suffix.get(file_type,[]):
+    if file_suffix not in file_type_map_suffix.get(file_type, []):
         logger.info(f'{filepath} ’s suffix is not right!')
 
     # 没有路径创建路径
@@ -90,7 +90,7 @@ def load_data(filepath, file_type=None):
     if not file_type:
         file_type = suffix_map_file_type.get(file_suffix)
 
-    if file_suffix not in file_type_map_suffix.get(file_type,[]):
+    if file_suffix not in file_type_map_suffix.get(file_type, []):
         logger.error(f"path: {os.path.abspath(filepath)} suffix is not right")
 
     if file_type == 'json':  # 2.90613 s
@@ -122,24 +122,49 @@ def load_jsonl_batch(filepath, batch_size=3):
         return data
 
 
-def save_and_load(file_name, file_type=None):
-    """
-    导入或读取所有的数据，装饰器，如果使用use_file_cache,则直接载入文件
-    :param file_name:
-    :param file_type:
-    :return:
-    """
+#
+# def save_and_load(file_name, file_type=None):
+#     """
+#     导入或读取所有的数据，装饰器，如果使用use_file_cache,则直接载入文件
+#     :param file_name:
+#     :param file_type:
+#     :return:
+#     """
+#
+#     def main_func(func):
+#         def inner_func(*args, **kwargs):
+#             use_file_cache = kwargs.get('use_file_cache', True)
+#             if 'use_file_cache' in kwargs:
+#                 kwargs.pop('use_file_cache')
+#             if os.path.isfile(file_name) and use_file_cache:
+#                 dt = load_data(file_name, file_type)
+#             else:
+#                 dt = func(*args, **kwargs)
+#                 save_data(dt, file_name, file_type)
+#             return dt
+#
+#         return inner_func
+#
+#     return main_func
 
+
+def save_and_load():
     def main_func(func):
         def inner_func(*args, **kwargs):
             use_file_cache = kwargs.get('use_file_cache', True)
+            results_file_name = kwargs.get('results_file_name', './tmp.json')
+            results_file_type = kwargs.get('results_file_type', None)
             if 'use_file_cache' in kwargs:
                 kwargs.pop('use_file_cache')
-            if os.path.isfile(file_name) and use_file_cache:
-                dt = load_data(file_name, file_type)
+            if 'results_file_name' in kwargs:
+                kwargs.pop('results_file_name')
+            if 'results_file_type' in kwargs:
+                kwargs.pop('results_file_type')
+            if os.path.isfile(results_file_name) and use_file_cache:
+                dt = load_data(results_file_name, results_file_type)
             else:
                 dt = func(*args, **kwargs)
-                save_data(dt, file_name, file_type)
+                save_data(dt, results_file_name, results_file_type)
             return dt
 
         return inner_func
@@ -147,7 +172,7 @@ def save_and_load(file_name, file_type=None):
     return main_func
 
 
-@save_and_load(file_name='./test3.pickle')
+@save_and_load()
 def test_data():
     d = ['a', 'b', 'c']
     return d
@@ -155,3 +180,4 @@ def test_data():
 
 if __name__ == '__main__':
     d = test_data()
+    print(2)
